@@ -1,0 +1,130 @@
+import { cookies } from "next/headers";
+import { NextRequest, NextResponse } from "next/server";
+import { exchangeAuthorizationCode, EtsyClient } from "@/lib/etsy";
+import { getEnv } from "@/lib/env";
+import { getDictionary, getLocaleFromParams } from "@/lib/i18n";
+import { getUserIdFromAccessToken } from "@/lib/oauth";
+import { selectShop, updateStore, upsertShop } from "@/lib/store";
+import { enqueueSyncJob } from "@/lib/sync-db";
+import { processSyncJobById } from "@/lib/sync-processor";
+import type { EtsyConnection } from "@/lib/types";
+
+function callbackRedirectUrl(request: NextRequest, returnTo: string | undefined, shopId: number, status: string) {
+  if (!returnTo) {
+    return new URL(`/dashboard?shopId=${shopId}`, request.url);
+  }
+
+  const redirectUrl = new URL(returnTo, request.url);
+  const locale = getLocaleFromParams({ lang: redirectUrl.searchParams.get("lang") });
+  const t = getDictionary(locale);
+  redirectUrl.searchParams.set("shopId", String(shopId));
+  redirectUrl.searchParams.set("settingsStatus", status);
+  redirectUrl.searchParams.set(
+    "settingsDetail",
+    status === "reconnected" ? t.settings.notices.reconnected : t.settings.notices.connected,
+  );
+
+  return redirectUrl;
+}
+
+export async function GET(request: NextRequest) {
+  try {
+    const code = request.nextUrl.searchParams.get("code");
+    const state = request.nextUrl.searchParams.get("state");
+    const error = request.nextUrl.searchParams.get("error");
+
+    if (error) {
+      return NextResponse.redirect(new URL(`/?error=${encodeURIComponent(error)}`, request.url));
+    }
+
+    if (!code || !state) {
+      return NextResponse.json({ error: "Missing Etsy OAuth code or state." }, { status: 400 });
+    }
+
+    const cookieStore = await cookies();
+    const expectedState = cookieStore.get("etsy_oauth_state")?.value;
+    const codeVerifier = cookieStore.get("etsy_code_verifier")?.value;
+    const returnTo = cookieStore.get("etsy_oauth_return_to")?.value;
+
+    if (!expectedState || expectedState !== state || !codeVerifier) {
+      return NextResponse.json({ error: "Invalid Etsy OAuth state." }, { status: 400 });
+    }
+
+    const token = await exchangeAuthorizationCode(code, codeVerifier);
+    const userId = getUserIdFromAccessToken(token.access_token);
+    const env = getEnv();
+
+    const temporaryConnection: EtsyConnection = {
+      userId,
+      shopId: 0,
+      shopName: "Etsy Shop",
+      accessToken: token.access_token,
+      refreshToken: token.refresh_token,
+      expiresAt: Date.now() + token.expires_in * 1000,
+      scopes: env.ETSY_SCOPES.split(/\s+/).filter(Boolean),
+      connectedAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    const client = new EtsyClient(temporaryConnection);
+    const shop = await client.getShopByOwnerUserId(userId);
+
+    if (!shop) {
+      return NextResponse.json({ error: "No Etsy shop found for this user." }, { status: 404 });
+    }
+
+    const connection: EtsyConnection = {
+      ...temporaryConnection,
+      shopId: shop.shop_id,
+      shopName: shop.shop_name,
+    };
+
+    let status = "connected";
+
+    await updateStore((store) => {
+      const existingShop = selectShop(store, connection.shopId);
+      status = existingShop ? "reconnected" : "connected";
+
+      return upsertShop(store, {
+        connection,
+        shop,
+        listings: existingShop?.listings ?? [],
+        receipts: existingShop?.receipts ?? [],
+        orderDetails: existingShop?.orderDetails ?? [],
+        ads: existingShop?.ads ?? [],
+        adsSyncNote: existingShop?.adsSyncNote ?? null,
+        lastSyncAt: existingShop?.lastSyncAt ?? null,
+        newOrderCount: existingShop?.newOrderCount ?? 0,
+      });
+    });
+
+    cookieStore.delete("etsy_oauth_state");
+    cookieStore.delete("etsy_code_verifier");
+    cookieStore.delete("etsy_oauth_return_to");
+
+    const jobId = await enqueueSyncJob(
+      connection.shopId,
+      "sync_shop_full",
+      {
+        requestedBy: "oauth_callback",
+        requestedAt: new Date().toISOString(),
+      },
+      20,
+    );
+    if (status === "connected") {
+      await processSyncJobById(jobId);
+    } else {
+      void processSyncJobById(jobId).catch(() => undefined);
+    }
+
+    return NextResponse.redirect(callbackRedirectUrl(request, returnTo, connection.shopId, status));
+  } catch (error) {
+    return NextResponse.json(
+      {
+        error: "Etsy callback failed",
+        detail: error instanceof Error ? error.message : "Unknown error",
+      },
+      { status: 500 },
+    );
+  }
+}
