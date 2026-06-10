@@ -5,7 +5,7 @@ let pool: Pool | null = null;
 
 export function getDatabaseUrl() {
   const env = getEnv();
-  return env.DATABASE_URL ?? env.DATABASE_POSTGRES_URL ?? env.DATABASE_POSTGRES_PRISMA_URL ?? null;
+  return env.DATABASE_POSTGRES_URL ?? env.DATABASE_POSTGRES_PRISMA_URL ?? env.DATABASE_URL ?? null;
 }
 
 export function getPool() {
