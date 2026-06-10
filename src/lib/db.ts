@@ -4,7 +4,8 @@ import { getEnv } from "@/lib/env";
 let pool: Pool | null = null;
 
 export function getDatabaseUrl() {
-  return getEnv().DATABASE_URL ?? null;
+  const env = getEnv();
+  return env.DATABASE_URL ?? env.DATABASE_POSTGRES_URL ?? env.DATABASE_POSTGRES_PRISMA_URL ?? null;
 }
 
 export function getPool() {
@@ -20,4 +21,3 @@ export function getPool() {
 
   return pool;
 }
-

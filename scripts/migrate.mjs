@@ -34,12 +34,18 @@ function migrationVersion(fileName) {
 
 loadLocalEnv();
 
-if (!process.env.DATABASE_URL) {
+const databaseUrl =
+  process.env.DATABASE_URL ??
+  process.env.DATABASE_POSTGRES_URL_NON_POOLING ??
+  process.env.DATABASE_POSTGRES_URL ??
+  process.env.DATABASE_POSTGRES_PRISMA_URL;
+
+if (!databaseUrl) {
   console.error("DATABASE_URL is required to run migrations.");
   process.exit(1);
 }
 
-const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+const pool = new Pool({ connectionString: databaseUrl });
 
 try {
   await pool.query(`

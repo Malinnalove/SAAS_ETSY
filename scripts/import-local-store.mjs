@@ -26,7 +26,13 @@ function loadLocalEnv() {
 
 loadLocalEnv();
 
-if (!process.env.DATABASE_URL) {
+const databaseUrl =
+  process.env.DATABASE_URL ??
+  process.env.DATABASE_POSTGRES_URL_NON_POOLING ??
+  process.env.DATABASE_POSTGRES_URL ??
+  process.env.DATABASE_POSTGRES_PRISMA_URL;
+
+if (!databaseUrl) {
   console.error("DATABASE_URL is required to import data/app.json.");
   process.exit(1);
 }
@@ -49,7 +55,7 @@ const orderDetailCount = store.shops
   ? store.shops.reduce((total, shop) => total + (shop.orderDetails?.length ?? 0), 0)
   : store.orderDetails?.length ?? 0;
 
-const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+const pool = new Pool({ connectionString: databaseUrl });
 
 try {
   await pool.query(`

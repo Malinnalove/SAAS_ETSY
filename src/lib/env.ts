@@ -12,6 +12,8 @@ const envSchema = z.object({
   APP_URL: z.string().url().default("http://localhost:3000"),
   SYNC_CRON_SECRET: z.string().optional(),
   DATABASE_URL: z.string().url().optional(),
+  DATABASE_POSTGRES_URL: z.string().url().optional(),
+  DATABASE_POSTGRES_PRISMA_URL: z.string().url().optional(),
 });
 
 export function getEnv() {
@@ -24,6 +26,8 @@ export function getEnv() {
     APP_URL: process.env.APP_URL,
     SYNC_CRON_SECRET: process.env.SYNC_CRON_SECRET,
     DATABASE_URL: process.env.DATABASE_URL,
+    DATABASE_POSTGRES_URL: process.env.DATABASE_POSTGRES_URL,
+    DATABASE_POSTGRES_PRISMA_URL: process.env.DATABASE_POSTGRES_PRISMA_URL,
   });
 
   if (!parsed.success) {
