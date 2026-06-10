@@ -497,12 +497,23 @@ const databaseUrl =
   process.env.DATABASE_POSTGRES_URL ??
   process.env.DATABASE_POSTGRES_PRISMA_URL;
 
+function normalizeDatabaseUrl(connectionString) {
+  if (
+    connectionString.includes("sslmode=require") &&
+    !connectionString.includes("uselibpqcompat=")
+  ) {
+    return `${connectionString}${connectionString.includes("?") ? "&" : "?"}uselibpqcompat=true`;
+  }
+
+  return connectionString;
+}
+
 if (!databaseUrl) {
   console.error("DATABASE_URL is required to backfill ERP tables.");
   process.exit(1);
 }
 
-const pool = new Pool({ connectionString: databaseUrl });
+const pool = new Pool({ connectionString: normalizeDatabaseUrl(databaseUrl) });
 
 try {
   if (!(await ready(pool))) {
