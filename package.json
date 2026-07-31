@@ -2,32 +2,48 @@
   "name": "etsy-saas-starter",
   "version": "0.1.0",
   "private": true,
+  "overrides": {
+    "postcss": "8.5.16"
+  },
   "scripts": {
-    "dev": "set HTTP_PROXY=http://127.0.0.1:7897&& set HTTPS_PROXY=http://127.0.0.1:7897&& set NO_PROXY=localhost,127.0.0.1&& set NODE_OPTIONS=--use-env-proxy&& next dev",
+    "dev": "set HTTP_PROXY=& set HTTPS_PROXY=& set NO_PROXY=& set NODE_OPTIONS=& next dev --webpack",
+    "dev:proxy": "set HTTP_PROXY=http://127.0.0.1:7897&& set HTTPS_PROXY=http://127.0.0.1:7897&& set NO_PROXY=localhost,127.0.0.1&& set NODE_OPTIONS=--use-env-proxy&& next dev --webpack",
     "build": "next build",
-    "start": "set HTTP_PROXY=http://127.0.0.1:7897&& set HTTPS_PROXY=http://127.0.0.1:7897&& set NO_PROXY=localhost,127.0.0.1&& set NODE_OPTIONS=--use-env-proxy&& next start",
+    "start": "set HTTP_PROXY=& set HTTPS_PROXY=& set NO_PROXY=& set NODE_OPTIONS=& next start",
+    "start:proxy": "set HTTP_PROXY=http://127.0.0.1:7897&& set HTTPS_PROXY=http://127.0.0.1:7897&& set NO_PROXY=localhost,127.0.0.1&& set NODE_OPTIONS=--use-env-proxy&& next start",
     "db:migrate": "node scripts/migrate.mjs",
     "db:import:local": "node scripts/import-local-store.mjs",
     "db:backfill:erp": "node scripts/backfill-erp.mjs",
     "db:setup:erp": "npm run db:migrate && npm run db:backfill:erp",
+    "auth:hash": "node scripts/hash-admin-password.mjs",
+    "auth:bootstrap": "node scripts/auth-bootstrap.mjs",
+    "auth:reset": "node scripts/auth-reset.mjs",
+    "auth:cleanup": "node scripts/auth-cleanup.mjs",
     "lint": "eslint .",
+    "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@tanstack/react-table": "^8.21.3",
+    "@tanstack/react-virtual": "^3.14.3",
     "@types/pg": "^8.20.0",
     "lucide-react": "^1.17.0",
-    "next": "16.2.7",
+    "next": "^16.2.10",
+    "otpauth": "^9.5.1",
     "pg": "^8.21.0",
+    "qrcode": "^1.5.4",
     "react": "19.0.0",
     "react-dom": "19.0.0",
     "zod": "3.25.56"
   },
   "devDependencies": {
     "@types/node": "22.15.29",
+    "@types/qrcode": "^1.5.6",
     "@types/react": "19.0.12",
     "@types/react-dom": "19.0.4",
     "eslint": "9.28.0",
-    "eslint-config-next": "16.2.7",
-    "typescript": "5.8.3"
+    "eslint-config-next": "^16.2.10",
+    "typescript": "5.8.3",
+    "vitest": "^4.1.10"
   }
 }

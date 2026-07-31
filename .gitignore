@@ -11,3 +11,7 @@ pnpm-debug.log*
 *.tsbuildinfo
 
 .vercel
+
+# Local exports and backups (keep migration SQL files under /migrations tracked).
+/*.zip
+/etsy_saas.sql

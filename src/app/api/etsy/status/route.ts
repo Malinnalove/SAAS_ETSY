@@ -1,10 +1,17 @@
 import { NextResponse } from "next/server";
-import { readStore } from "@/lib/store";
-import { getSyncStatus } from "@/lib/sync-db";
+import { listAccessibleShopIds, requireUserApi } from "@/features/auth/session";
+import { filterStoreByShopIds, readOrganizationStore } from "@/lib/store";
+import { getSyncStatus } from "@/features/sync/db";
 
-export async function GET() {
-  const store = await readStore();
-  const syncStatus = await getSyncStatus().catch(() => null);
+export async function GET(request: Request) {
+  const guard = await requireUserApi(request, "products.read");
+  if (guard.response) {
+    return guard.response;
+  }
+
+  const shopIds = await listAccessibleShopIds(guard.user!);
+  const store = filterStoreByShopIds(await readOrganizationStore(guard.user!.organizationId), shopIds);
+  const syncStatus = await getSyncStatus(undefined, shopIds).catch(() => null);
 
   return NextResponse.json({
     connected: Boolean(store.connection),
@@ -23,6 +30,7 @@ export async function GET() {
       orderDetails: store.orderDetails.length,
       ads: store.ads.length,
     },
+    apiQuota: store.apiQuota,
     shops: store.shops.map((shopData) => ({
       shopId: shopData.connection.shopId,
       shopName: shopData.connection.shopName,
@@ -30,6 +38,7 @@ export async function GET() {
       active: shopData.connection.shopId === store.activeShopId,
       lastSyncAt: shopData.lastSyncAt,
       newOrderCount: shopData.newOrderCount,
+      apiQuota: shopData.apiQuota,
       counts: {
         listings: shopData.listings.length,
         receipts: shopData.receipts.length,

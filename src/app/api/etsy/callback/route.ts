@@ -1,13 +1,20 @@
 import { cookies } from "next/headers";
 import { NextRequest, NextResponse } from "next/server";
-import { exchangeAuthorizationCode, EtsyClient } from "@/lib/etsy";
+import { requireUserApi } from "@/features/auth/session";
+import { EtsyClient } from "@/features/etsy/client";
+import { exchangeAuthorizationCode } from "@/features/etsy/oauth";
 import { getEnv } from "@/lib/env";
-import { getDictionary, getLocaleFromParams } from "@/lib/i18n";
+import { getDictionary, getLocaleFromParams } from "@/shared/i18n";
 import { getUserIdFromAccessToken } from "@/lib/oauth";
 import { selectShop, updateStore, upsertShop } from "@/lib/store";
-import { enqueueSyncJob } from "@/lib/sync-db";
-import { processSyncJobById } from "@/lib/sync-processor";
-import type { EtsyConnection } from "@/lib/types";
+import {
+  assertShopOrganizationAvailable,
+  assignShopToOrganization,
+  enqueueSyncJob,
+} from "@/features/sync/db";
+import { processSyncJobById } from "@/features/sync/processor";
+import type { EtsyConnection } from "@/shared/types/etsy";
+import { requestId } from "@/features/auth/security";
 
 function callbackRedirectUrl(request: NextRequest, returnTo: string | undefined, shopId: number, status: string) {
   if (!returnTo) {
@@ -29,6 +36,11 @@ function callbackRedirectUrl(request: NextRequest, returnTo: string | undefined,
 
 export async function GET(request: NextRequest) {
   try {
+    const guard = await requireUserApi(request, "shops.manage");
+    if (guard.response || !guard.admin) {
+      return guard.response;
+    }
+
     const code = request.nextUrl.searchParams.get("code");
     const state = request.nextUrl.searchParams.get("state");
     const error = request.nextUrl.searchParams.get("error");
@@ -81,6 +93,8 @@ export async function GET(request: NextRequest) {
 
     let status = "connected";
 
+    await assertShopOrganizationAvailable(connection.shopId, guard.admin.organizationId);
+
     await updateStore((store) => {
       const existingShop = selectShop(store, connection.shopId);
       status = existingShop ? "reconnected" : "connected";
@@ -93,10 +107,12 @@ export async function GET(request: NextRequest) {
         orderDetails: existingShop?.orderDetails ?? [],
         ads: existingShop?.ads ?? [],
         adsSyncNote: existingShop?.adsSyncNote ?? null,
+        apiQuota: existingShop?.apiQuota ?? null,
         lastSyncAt: existingShop?.lastSyncAt ?? null,
         newOrderCount: existingShop?.newOrderCount ?? 0,
       });
     });
+    await assignShopToOrganization(connection.shopId, guard.admin.organizationId);
 
     cookieStore.delete("etsy_oauth_state");
     cookieStore.delete("etsy_code_verifier");
@@ -119,10 +135,12 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.redirect(callbackRedirectUrl(request, returnTo, connection.shopId, status));
   } catch (error) {
+    const id = requestId(request);
+    console.error(`[${id}] Etsy callback failed`, error instanceof Error ? error.name : "Unknown error");
     return NextResponse.json(
       {
-        error: "Etsy callback failed",
-        detail: error instanceof Error ? error.message : "Unknown error",
+        error: "Etsy callback failed.",
+        requestId: id,
       },
       { status: 500 },
     );

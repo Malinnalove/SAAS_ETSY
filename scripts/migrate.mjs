@@ -35,6 +35,7 @@ function migrationVersion(fileName) {
 loadLocalEnv();
 
 const databaseUrl =
+  process.env.DATABASE_MIGRATION_URL ??
   process.env.DATABASE_URL ??
   process.env.DATABASE_POSTGRES_URL_NON_POOLING ??
   process.env.DATABASE_POSTGRES_URL ??
@@ -52,7 +53,7 @@ function normalizeDatabaseUrl(connectionString) {
 }
 
 if (!databaseUrl) {
-  console.error("DATABASE_URL is required to run migrations.");
+  console.error("DATABASE_MIGRATION_URL or DATABASE_URL is required to run migrations.");
   process.exit(1);
 }
 

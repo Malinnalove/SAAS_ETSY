@@ -1,19 +1,28 @@
 import Link from "next/link";
 import { AlertTriangle, CheckCircle2, Clock3 } from "lucide-react";
 import { AppShell, EmptyState, MetricCard, StatusBadge } from "@/components/app-shell";
-import { compactNumber, dateFromString } from "@/lib/commerce-metrics";
-import { getDatabaseUrl } from "@/lib/db";
+import { ApiQuotaWidgetSettings } from "@/components/etsy-api-quota-widget";
+import { DisconnectShopButton } from "@/components/settings/disconnect-shop-button";
+import { changeAdminPasswordAction, updateEnterpriseProfileAction } from "@/features/auth/actions";
+import { compactNumber, dateFromString } from "@/shared/format/commerce";
+import { getDatabaseUrl } from "@/server/db";
 import { getEnv } from "@/lib/env";
-import { getDictionary } from "@/lib/i18n";
-import { getSyncStatus } from "@/lib/sync-db";
-import { getWorkspace, hrefWithShop, type WorkspacePageProps } from "@/lib/workspace";
+import { getDictionary } from "@/shared/i18n";
+import { getSyncStatus } from "@/features/sync/db";
+import { getWorkspace, hrefWithShop, type WorkspacePageProps } from "@/features/workspace/workspace";
+import { requirePermission } from "@/features/auth/session";
 
 function statusCount(status: Record<string, number> | undefined, key: string) {
   return status?.[key] ?? 0;
 }
 
+function isSuccessNotice(status?: string) {
+  return status === "reconnected" || status === "connected" || status === "sync_completed" || status === "updated";
+}
+
 export default async function SettingsPage({ searchParams }: WorkspacePageProps) {
-  const { locale, params, selectedShop, selectedShopId, store } = await getWorkspace(searchParams);
+  const { locale, params, selectedShop, selectedShopId, store } = await getWorkspace(searchParams, "/settings");
+  const admin = await requirePermission("system.manage", "/settings");
   const t = getDictionary(locale);
   const env = getEnv();
   const syncStatus = await getSyncStatus().catch(() => null);
@@ -43,6 +52,76 @@ export default async function SettingsPage({ searchParams }: WorkspacePageProps)
       <section className="settingsGrid">
         <div className="panel settingsPanel">
           <div className="panelHeader">
+            <div><span className="tinyLabel">账号安全</span><h2>成员与安全</h2></div>
+            <div className="rowActions">
+              <Link className="button secondary" href="/settings/security">安全与会话</Link>
+              <Link className="button" href="/settings/members">成员管理</Link>
+            </div>
+          </div>
+        </div>
+        <div className="panel settingsPanel enterpriseSettingsPanel">
+          <div className="panelHeader">
+            <div>
+              <span className="tinyLabel">企业</span>
+              <h2>企业与管理员</h2>
+            </div>
+          </div>
+          {settingsStatus && noticeText ? (
+            <div
+              className={
+                isSuccessNotice(settingsStatus) ? "notice successNotice" : "notice errorNotice"
+              }
+            >
+              {noticeText}
+            </div>
+          ) : null}
+          <div className="enterpriseForms">
+            <form action={updateEnterpriseProfileAction} className="enterpriseForm">
+              <input name="_csrf" type="hidden" value={admin.csrfToken} />
+              <input name="lang" type="hidden" value={locale} />
+              <input name="shopId" type="hidden" value={selectedShopId ?? ""} />
+              <label className="formField">
+                <span>企业名称</span>
+                <input name="organizationName" required defaultValue={admin.organizationName} />
+              </label>
+              <label className="formField">
+                <span>管理员账号</span>
+                <input autoComplete="username" name="username" required defaultValue={admin.username} />
+              </label>
+              <label className="formField">
+                <span>显示名</span>
+                <input name="displayName" defaultValue={admin.displayName ?? admin.username} />
+              </label>
+              <div className="formActions">
+                <button type="submit">保存企业信息</button>
+              </div>
+            </form>
+
+            <form action={changeAdminPasswordAction} className="enterpriseForm">
+              <input name="_csrf" type="hidden" value={admin.csrfToken} />
+              <input name="lang" type="hidden" value={locale} />
+              <input name="shopId" type="hidden" value={selectedShopId ?? ""} />
+              <label className="formField">
+                <span>当前密码</span>
+                <input autoComplete="current-password" name="currentPassword" required type="password" />
+              </label>
+              <label className="formField">
+                <span>新密码</span>
+                <input autoComplete="new-password" name="newPassword" required type="password" />
+              </label>
+              <label className="formField">
+                <span>确认新密码</span>
+                <input autoComplete="new-password" name="confirmPassword" required type="password" />
+              </label>
+              <div className="formActions">
+                <button className="secondary" type="submit">修改密码</button>
+              </div>
+            </form>
+          </div>
+        </div>
+
+        <div className="panel settingsPanel">
+          <div className="panelHeader">
             <div>
               <span className="tinyLabel">{t.settings.panels.platforms}</span>
               <h2>{t.settings.marketplaceConnections}</h2>
@@ -51,17 +130,6 @@ export default async function SettingsPage({ searchParams }: WorkspacePageProps)
               {t.actions.connectEtsy}
             </Link>
           </div>
-          {settingsStatus && noticeText ? (
-            <div
-              className={
-                settingsStatus === "reconnected" || settingsStatus === "connected"
-                  ? "notice successNotice"
-                  : "notice errorNotice"
-              }
-            >
-              {noticeText}
-            </div>
-          ) : null}
           <div className="marketplaceGroups">
             <section className="marketplaceGroup">
               <div className="marketplaceHeader">
@@ -107,6 +175,16 @@ export default async function SettingsPage({ searchParams }: WorkspacePageProps)
                       >
                         {t.actions.open}
                       </Link>
+                      <DisconnectShopButton
+                        actionUrl={`/api/etsy/disconnect?shopId=${shopData.connection.shopId}&lang=${locale}`}
+                        cancelLabel={t.actions.cancel}
+                        confirmDescription={t.settings.danger.confirmDescription(shopData.connection.shopName)}
+                        confirmLabel={t.settings.danger.confirmAction}
+                        confirmTitle={t.settings.danger.confirmTitle}
+                        disconnectLabel={t.actions.disconnect}
+                        csrfToken={admin.csrfToken}
+                        shopName={shopData.connection.shopName}
+                      />
                     </div>
                   </div>
                 ))}
@@ -145,6 +223,7 @@ export default async function SettingsPage({ searchParams }: WorkspacePageProps)
             </div>
             {selectedShopId ? (
               <form action={`/api/etsy/sync?shopId=${selectedShopId}&lang=${locale}`} method="post">
+                <input name="_csrf" type="hidden" value={admin.csrfToken} />
                 <button type="submit">{t.actions.syncNow}</button>
               </form>
             ) : null}
@@ -189,8 +268,8 @@ export default async function SettingsPage({ searchParams }: WorkspacePageProps)
                 <strong>{t.settings.rows.cron}</strong>
                 <small>{`${baseUrl}/api/sync/cron`}</small>
               </div>
-              <StatusBadge tone={env.SYNC_CRON_SECRET ? "warning" : "info"}>
-                {env.SYNC_CRON_SECRET ? t.settings.rows.cronSecret : t.settings.rows.cronOpen}
+              <StatusBadge tone={env.SYNC_CRON_SECRET ? "success" : "danger"}>
+                {env.SYNC_CRON_SECRET ? t.settings.rows.cronSecret : t.status.missing}
               </StatusBadge>
             </div>
             <div className="settingsRow">
@@ -211,6 +290,7 @@ export default async function SettingsPage({ searchParams }: WorkspacePageProps)
             </div>
           </div>
           <div className="settingsRows">
+            <ApiQuotaWidgetSettings locale={locale} />
             <div className="settingsRow">
               <div>
                 <strong>{t.settings.rows.database}</strong>
@@ -241,29 +321,6 @@ export default async function SettingsPage({ searchParams }: WorkspacePageProps)
           </div>
         </div>
 
-        <div className="panel settingsPanel dangerPanel">
-          <div className="panelHeader">
-            <div>
-              <span className="tinyLabel">{t.settings.panels.danger}</span>
-              <h2>{t.settings.danger.title}</h2>
-            </div>
-          </div>
-          {selectedShopId ? (
-            <div className="settingsRow">
-              <div>
-                <strong>{selectedShop?.connection.shopName}</strong>
-                <small>{t.settings.danger.description}</small>
-              </div>
-              <form action={`/api/etsy/disconnect?shopId=${selectedShopId}&lang=${locale}`} method="post">
-                <button className="button danger" type="submit">
-                  {t.actions.disconnect}
-                </button>
-              </form>
-            </div>
-          ) : (
-            <EmptyState>{t.settings.emptyShops}</EmptyState>
-          )}
-        </div>
       </section>
     </AppShell>
   );

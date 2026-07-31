@@ -6,8 +6,8 @@ import {
   markWebhookFailed,
   markWebhookProcessed,
   recordWebhookEvent,
-} from "@/lib/sync-db";
-import { processSyncJobById } from "@/lib/sync-processor";
+} from "@/features/sync/db";
+import { processSyncJobById } from "@/features/sync/processor";
 
 export const runtime = "nodejs";
 

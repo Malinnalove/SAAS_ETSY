@@ -1,4 +1,5 @@
 import Link from "next/link";
+import Image from "next/image";
 import type { ReactNode } from "react";
 import {
   BarChart3,
@@ -8,21 +9,27 @@ import {
   Globe2,
   Languages,
   LayoutDashboard,
+  LogOut,
   Package,
   Plus,
   Settings,
   ShoppingBag,
+  Table2,
   type LucideIcon,
 } from "lucide-react";
-import { compactNumber, dateFromString } from "@/lib/commerce-metrics";
-import { getDictionary, type Locale } from "@/lib/i18n";
-import type { AppStore, EtsyShopData } from "@/lib/types";
-import { hrefWithShop, type WorkspaceLinkParams } from "@/lib/workspace";
+import { EtsyApiQuotaWidget as DraggableEtsyApiQuotaWidget } from "@/components/etsy-api-quota-widget";
+import { compactNumber, dateFromString } from "@/shared/format/commerce";
+import { getDictionary, type Locale } from "@/shared/i18n";
+import type { AppStore, EtsyShopData } from "@/shared/types/etsy";
+import { hrefWithShop, type WorkspaceLinkParams } from "@/features/workspace/workspace";
+import { getCurrentUser, hasShopAccess } from "@/features/auth/session";
+import { hasPermission, type AuthPermission } from "@/features/auth/types";
 
 type AppShellProps = {
   activePath: string;
   actions?: ReactNode;
   children: ReactNode;
+  headerTabs?: ReactNode;
   kicker: string;
   locale: Locale;
   preserveParams?: WorkspaceLinkParams;
@@ -32,22 +39,24 @@ type AppShellProps = {
   title: string;
 };
 
-type NavKey = "dashboard" | "products" | "orders" | "settings";
+type NavKey = "dashboard" | "products" | "listingSheet" | "orders" | "settings";
 
 type MetricTone = "amber" | "blue" | "coral" | "honey" | "slate" | "teal";
 type BadgeTone = "danger" | "info" | "neutral" | "success" | "warning";
 
-const navItems: Array<{ href: string; icon: LucideIcon; key: NavKey }> = [
-  { href: "/dashboard", icon: LayoutDashboard, key: "dashboard" },
-  { href: "/products", icon: Package, key: "products" },
-  { href: "/orders", icon: ShoppingBag, key: "orders" },
-  { href: "/settings", icon: Settings, key: "settings" },
+const navItems: Array<{ href: string; icon: LucideIcon; key: NavKey; permission: AuthPermission }> = [
+  { href: "/dashboard", icon: LayoutDashboard, key: "dashboard", permission: "dashboard.read" },
+  { href: "/products", icon: Package, key: "products", permission: "products.read" },
+  { href: "/listing-sheet", icon: Table2, key: "listingSheet", permission: "listings.read" },
+  { href: "/orders", icon: ShoppingBag, key: "orders", permission: "orders.read" },
+  { href: "/settings", icon: Settings, key: "settings", permission: "system.manage" },
 ];
 
-export function AppShell({
+export async function AppShell({
   activePath,
   actions,
   children,
+  headerTabs,
   kicker,
   locale,
   preserveParams,
@@ -56,8 +65,12 @@ export function AppShell({
   store,
   title,
 }: AppShellProps) {
+  const auth = await getCurrentUser();
   const t = getDictionary(locale);
   const totalNewOrders = store.shops.reduce((total, shop) => total + (shop.newOrderCount ?? 0), 0);
+  const canAddShop = Boolean(
+    auth && hasPermission(auth, "shops.manage") && (activePath === "/dashboard" || activePath === "/settings"),
+  );
   const connectReturnTo = hrefWithShop(activePath, selectedShopId, { lang: locale });
   const connectHref = `/api/etsy/connect?returnTo=${encodeURIComponent(connectReturnTo)}`;
   const localeHref = (nextLocale: Locale) =>
@@ -65,13 +78,28 @@ export function AppShell({
       ...preserveParams,
       lang: nextLocale,
     });
+  const sharedApiQuota =
+    selectedShop?.apiQuota ?? store.apiQuota ?? store.shops.find((shopData) => shopData.apiQuota)?.apiQuota ?? null;
+  const quotaShop = selectedShop ? { ...selectedShop, apiQuota: sharedApiQuota } : null;
+  const canSyncSelectedShop = Boolean(
+    auth && selectedShopId && await hasShopAccess(auth, selectedShopId, "sync.run"),
+  );
 
   return (
     <main className="appShell" lang={locale === "zh" ? "zh-CN" : "en"}>
+      <input id="app-csrf-token" type="hidden" value={auth?.csrfToken ?? ""} />
       <aside className="sidebar" aria-label="Primary">
         <Link className="brandLockup" href={hrefWithShop("/dashboard", selectedShopId, { lang: locale })}>
           <span className="brandMark" aria-hidden="true">
-            HW
+            <Image
+              alt=""
+              className="brandLogoImage"
+              height={42}
+              priority
+              src="/icon.png"
+              unoptimized
+              width={42}
+            />
           </span>
           <span>
             {t.app.brand}
@@ -80,7 +108,7 @@ export function AppShell({
         </Link>
 
         <nav className="sideNav" aria-label="Workspace">
-          {navItems.map((item) => {
+          {navItems.filter((item) => auth && hasPermission(auth, item.permission)).map((item) => {
             const Icon = item.icon;
 
             return (
@@ -148,6 +176,7 @@ export function AppShell({
                 <span className="platformStatus">{t.actions.comingSoon}</span>
               </div>
             </div>
+
           </div>
         </section>
 
@@ -159,10 +188,11 @@ export function AppShell({
       </aside>
 
       <section className="workspace">
-        <header className="workspaceTopbar">
+        <header className={headerTabs ? "workspaceTopbar hasHeaderTabs" : "workspaceTopbar"}>
           <div className="workspaceTitle">
             <p className="eyebrow">{kicker}</p>
             <h1>{title}</h1>
+            {headerTabs ? <div className="workspaceHeaderTabs">{headerTabs}</div> : null}
           </div>
 
           <div className="toolbar">
@@ -176,16 +206,37 @@ export function AppShell({
               </Link>
             </div>
 
-            <Link className={selectedShopId ? "button secondary" : "button"} href={connectHref}>
-              {selectedShopId ? <Plus aria-hidden="true" size={16} /> : <Globe2 aria-hidden="true" size={16} />}
-              {selectedShopId ? t.actions.addShop : t.actions.connectEtsy}
-            </Link>
+            {canAddShop ? (
+              <Link className={selectedShopId ? "button secondary" : "button"} href={connectHref}>
+                {selectedShopId ? <Plus aria-hidden="true" size={16} /> : <Globe2 aria-hidden="true" size={16} />}
+                {selectedShopId ? t.actions.addShop : t.actions.connectEtsy}
+              </Link>
+            ) : null}
+            {auth && selectedShopId && canSyncSelectedShop && activePath !== "/settings" ? (
+              <form action={`/api/etsy/sync?shopId=${selectedShopId}&lang=${locale}`} method="post">
+                <input name="_csrf" type="hidden" value={auth.csrfToken} />
+                <button className="button secondary" type="submit">同步</button>
+              </form>
+            ) : null}
+            {auth ? (
+              <Link className="button quiet" href="/settings/security">
+                {auth.displayName ?? auth.username} · {auth.role}
+              </Link>
+            ) : null}
+            <form action="/api/auth/logout" className="logoutForm" method="post">
+              <input name="_csrf" type="hidden" value={auth?.csrfToken ?? ""} />
+              <button className="button quiet" type="submit">
+                <LogOut aria-hidden="true" size={16} />
+                {t.actions.logout}
+              </button>
+            </form>
             {actions}
           </div>
         </header>
 
         {children}
       </section>
+      <DraggableEtsyApiQuotaWidget locale={locale} selectedShop={quotaShop} />
     </main>
   );
 }

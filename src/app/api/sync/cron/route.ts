@@ -1,26 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getEnv } from "@/lib/env";
-import { getSyncStatus } from "@/lib/sync-db";
-import { enqueueScheduledSyncJobs, processSyncJobs } from "@/lib/sync-processor";
+import { getSyncStatus } from "@/features/sync/db";
+import { enqueueScheduledSyncJobs, processSyncJobs } from "@/features/sync/processor";
+import { safeEqual } from "@/features/auth/security";
 
 export const runtime = "nodejs";
 
 function isAuthorized(request: NextRequest) {
   const secret = getEnv().SYNC_CRON_SECRET;
 
-  if (!secret) {
-    return true;
-  }
+  if (!secret) return false;
 
   const authorization = request.headers.get("authorization");
   const headerSecret = request.headers.get("x-sync-secret");
-  const querySecret = request.nextUrl.searchParams.get("secret");
-
-  return (
-    authorization === `Bearer ${secret}` ||
-    headerSecret === secret ||
-    querySecret === secret
-  );
+  return safeEqual(authorization, `Bearer ${secret}`) || safeEqual(headerSecret, secret);
 }
 
 async function handleCron(request: NextRequest) {
@@ -41,8 +34,8 @@ async function handleCron(request: NextRequest) {
   });
 }
 
-export async function GET(request: NextRequest) {
-  return handleCron(request);
+export async function GET() {
+  return NextResponse.json({ error: "Use POST for scheduled sync." }, { status: 405, headers: { Allow: "POST" } });
 }
 
 export async function POST(request: NextRequest) {

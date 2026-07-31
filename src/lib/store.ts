@@ -1,8 +1,8 @@
 import { mkdir, readFile, writeFile } from "fs/promises";
 import path from "path";
-import { getPool } from "@/lib/db";
-import { readDatabaseStore, replaceDatabaseStore } from "@/lib/sync-db";
-import type { AppStore, EtsyShopData } from "@/lib/types";
+import { getPool } from "@/server/db";
+import { readDatabaseStore, replaceDatabaseStore } from "@/features/sync/db";
+import type { AppStore, EtsyApiQuota, EtsyShopData } from "@/shared/types/etsy";
 
 const storePath = path.join(process.cwd(), "data", "app.json");
 
@@ -14,10 +14,19 @@ const emptyStore: AppStore = {
   orderDetails: [],
   ads: [],
   adsSyncNote: null,
+  apiQuota: null,
   lastSyncAt: null,
   activeShopId: null,
   shops: [],
 };
+
+function latestApiQuota(shops: EtsyShopData[], fallback?: EtsyApiQuota | null) {
+  return (
+    [fallback, ...shops.map((shopData) => shopData.apiQuota)]
+      .filter((apiQuota): apiQuota is EtsyApiQuota => Boolean(apiQuota))
+      .sort((left, right) => new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime())[0] ?? null
+  );
+}
 
 function mirrorActiveShop(store: AppStore, activeShop: EtsyShopData | null): AppStore {
   return {
@@ -29,6 +38,7 @@ function mirrorActiveShop(store: AppStore, activeShop: EtsyShopData | null): App
     orderDetails: activeShop?.orderDetails ?? [],
     ads: activeShop?.ads ?? [],
     adsSyncNote: activeShop?.adsSyncNote ?? null,
+    apiQuota: activeShop?.apiQuota ?? null,
     lastSyncAt: activeShop?.lastSyncAt ?? null,
   };
 }
@@ -38,6 +48,7 @@ export function normalizeStore(raw: Partial<AppStore>): AppStore {
   let shops = Array.isArray(merged.shops)
     ? merged.shops.map((shop) => ({
         ...shop,
+        apiQuota: shop.apiQuota ?? null,
         newOrderCount: shop.newOrderCount ?? 0,
       }))
     : [];
@@ -53,10 +64,19 @@ export function normalizeStore(raw: Partial<AppStore>): AppStore {
         orderDetails: merged.orderDetails ?? [],
         ads: merged.ads ?? [],
         adsSyncNote: merged.adsSyncNote ?? null,
+        apiQuota: merged.apiQuota ?? null,
         lastSyncAt: merged.lastSyncAt ?? null,
         newOrderCount: 0,
       },
     ];
+  }
+
+  const sharedApiQuota = latestApiQuota(shops, merged.apiQuota);
+  if (sharedApiQuota) {
+    shops = shops.map((shopData) => ({
+      ...shopData,
+      apiQuota: sharedApiQuota,
+    }));
   }
 
   const requestedActiveShopId =
@@ -67,6 +87,7 @@ export function normalizeStore(raw: Partial<AppStore>): AppStore {
   return mirrorActiveShop(
     {
       ...merged,
+      apiQuota: sharedApiQuota,
       shops,
       activeShopId: activeShop?.connection.shopId ?? null,
     },
@@ -82,6 +103,18 @@ export function selectShop(store: AppStore, shopId?: number | null) {
     normalized.shops[0] ??
     null
   );
+}
+
+export function filterStoreByShopIds(store: AppStore, allowedShopIds: Iterable<number>) {
+  const normalized = normalizeStore(store);
+  const allowed = new Set(allowedShopIds);
+  const shops = normalized.shops.filter((shop) => allowed.has(shop.connection.shopId));
+  const activeShop = shops.find((shop) => shop.connection.shopId === normalized.activeShopId) ?? shops[0] ?? null;
+  return mirrorActiveShop({
+    ...normalized,
+    activeShopId: activeShop?.connection.shopId ?? null,
+    shops,
+  }, activeShop);
 }
 
 export function upsertShop(store: AppStore, shopData: EtsyShopData) {
@@ -149,6 +182,14 @@ export async function readStore(): Promise<AppStore> {
   } catch {
     return emptyStore;
   }
+}
+
+export async function readOrganizationStore(organizationId: number): Promise<AppStore> {
+  const pool = getPool();
+  if (!pool) {
+    throw new Error("PostgreSQL is required for authenticated organization data.");
+  }
+  return normalizeStore(await readDatabaseStore(pool, organizationId));
 }
 
 export async function writeStore(store: AppStore) {

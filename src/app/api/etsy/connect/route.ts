@@ -1,17 +1,19 @@
 import { cookies } from "next/headers";
 import { NextRequest, NextResponse } from "next/server";
+import { requireUserApi, safeReturnPath as safeAuthReturnPath } from "@/features/auth/session";
 import { getEnv } from "@/lib/env";
 import { createCodeChallenge, createCodeVerifier, createState } from "@/lib/oauth";
 
 function safeReturnPath(value: string | null) {
-  if (!value || !value.startsWith("/") || value.startsWith("//")) {
-    return null;
-  }
-
-  return value;
+  return value ? safeAuthReturnPath(value) : null;
 }
 
 export async function GET(request: NextRequest) {
+  const guard = await requireUserApi(request, "shops.manage");
+  if (guard.response) {
+    return guard.response;
+  }
+
   const env = getEnv();
   const state = createState();
   const codeVerifier = createCodeVerifier();
@@ -24,12 +26,14 @@ export async function GET(request: NextRequest) {
     maxAge: 10 * 60,
     path: "/",
     sameSite: "lax",
+    secure: process.env.NODE_ENV === "production",
   });
   cookieStore.set("etsy_code_verifier", codeVerifier, {
     httpOnly: true,
     maxAge: 10 * 60,
     path: "/",
     sameSite: "lax",
+    secure: process.env.NODE_ENV === "production",
   });
   if (returnTo) {
     cookieStore.set("etsy_oauth_return_to", returnTo, {
@@ -37,6 +41,7 @@ export async function GET(request: NextRequest) {
       maxAge: 10 * 60,
       path: "/",
       sameSite: "lax",
+      secure: process.env.NODE_ENV === "production",
     });
   }
 

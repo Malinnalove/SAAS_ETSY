@@ -1,25 +1,23 @@
 import { NextResponse } from "next/server";
-import { removeShop, updateStore, writeStore } from "@/lib/store";
+import { authorizeShop, requireUserApi } from "@/features/auth/session";
+import { deactivateShop } from "@/features/sync/db";
 
 export async function POST(request: Request) {
+  const guard = await requireUserApi(request, "shops.manage");
+  if (guard.response) {
+    return guard.response;
+  }
+
   const url = new URL(request.url);
   const shopId = Number(url.searchParams.get("shopId"));
 
   if (Number.isFinite(shopId) && shopId > 0) {
-    await updateStore((store) => removeShop(store, shopId));
+    if (!guard.user || !(await authorizeShop(guard.user, shopId, "shops.manage"))) {
+      return NextResponse.json({ error: "Forbidden." }, { status: 403 });
+    }
+    await deactivateShop(shopId);
   } else {
-    await writeStore({
-      connection: null,
-      shop: null,
-      listings: [],
-      receipts: [],
-      orderDetails: [],
-      ads: [],
-      adsSyncNote: null,
-      lastSyncAt: null,
-      activeShopId: null,
-      shops: [],
-    });
+    return NextResponse.json({ error: "Valid shopId is required." }, { status: 400 });
   }
 
   const accept = request.headers.get("accept") ?? "";

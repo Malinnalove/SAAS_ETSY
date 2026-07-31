@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
-import { getLocaleFromParams } from "@/lib/i18n";
-import { hrefWithShop, selectedShopIdFromParams } from "@/lib/workspace";
+import { getLocaleFromParams } from "@/shared/i18n";
+import { hrefWithShop, selectedShopIdFromParams } from "@/features/workspace/workspace";
 
 type HomeProps = {
   searchParams?: Promise<{
