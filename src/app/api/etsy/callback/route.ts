@@ -2,8 +2,9 @@ import { cookies } from "next/headers";
 import { NextRequest, NextResponse } from "next/server";
 import { requireUserApi } from "@/features/auth/session";
 import { EtsyClient } from "@/features/etsy/client";
+import { buildEtsyCallbackRedirectUrl } from "@/features/etsy/callback-redirect";
 import { exchangeAuthorizationCode } from "@/features/etsy/oauth";
-import { getDictionary, getLocaleFromParams } from "@/shared/i18n";
+import { getEnv } from "@/lib/env";
 import { getUserIdFromAccessToken } from "@/lib/oauth";
 import { selectShop, updateStore, upsertShop } from "@/lib/store";
 import {
@@ -21,24 +22,6 @@ import {
   parseEtsyApiSlot,
 } from "@/features/etsy/api-config";
 
-function callbackRedirectUrl(request: NextRequest, returnTo: string | undefined, shopId: number, status: string) {
-  if (!returnTo) {
-    return new URL(`/dashboard?shopId=${shopId}`, request.url);
-  }
-
-  const redirectUrl = new URL(returnTo, request.url);
-  const locale = getLocaleFromParams({ lang: redirectUrl.searchParams.get("lang") });
-  const t = getDictionary(locale);
-  redirectUrl.searchParams.set("shopId", String(shopId));
-  redirectUrl.searchParams.set("settingsStatus", status);
-  redirectUrl.searchParams.set(
-    "settingsDetail",
-    status === "reconnected" ? t.settings.notices.reconnected : t.settings.notices.connected,
-  );
-
-  return redirectUrl;
-}
-
 export async function GET(request: NextRequest) {
   try {
     const guard = await requireUserApi(request, "shops.manage");
@@ -49,9 +32,10 @@ export async function GET(request: NextRequest) {
     const code = request.nextUrl.searchParams.get("code");
     const state = request.nextUrl.searchParams.get("state");
     const error = request.nextUrl.searchParams.get("error");
+    const appUrl = getEnv().APP_URL;
 
     if (error) {
-      return NextResponse.redirect(new URL(`/?error=${encodeURIComponent(error)}`, request.url));
+      return NextResponse.redirect(new URL(`/?error=${encodeURIComponent(error)}`, appUrl));
     }
 
     if (!code || !state) {
@@ -149,7 +133,7 @@ export async function GET(request: NextRequest) {
       void processSyncJobById(jobId).catch(() => undefined);
     }
 
-    return NextResponse.redirect(callbackRedirectUrl(request, returnTo, connection.shopId, status));
+    return NextResponse.redirect(buildEtsyCallbackRedirectUrl(appUrl, returnTo, connection.shopId, status));
   } catch (error) {
     const id = requestId(request);
     console.error(`[${id}] Etsy callback failed`, error instanceof Error ? error.name : "Unknown error");
