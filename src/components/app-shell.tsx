@@ -24,6 +24,12 @@ import type { AppStore, EtsyShopData } from "@/shared/types/etsy";
 import { hrefWithShop, type WorkspaceLinkParams } from "@/features/workspace/workspace";
 import { getCurrentUser, hasShopAccess } from "@/features/auth/session";
 import { hasPermission, type AuthPermission } from "@/features/auth/types";
+import {
+  etsyApiSlotForConnection,
+  etsyApiSlotHasCapacity,
+  isEtsyApiConfigured,
+  MAX_ETSY_SHOPS_PER_API,
+} from "@/features/etsy/api-config";
 
 type AppShellProps = {
   activePath: string;
@@ -72,15 +78,21 @@ export async function AppShell({
     auth && hasPermission(auth, "shops.manage") && (activePath === "/dashboard" || activePath === "/settings"),
   );
   const connectReturnTo = hrefWithShop(activePath, selectedShopId, { lang: locale });
-  const connectHref = `/api/etsy/connect?returnTo=${encodeURIComponent(connectReturnTo)}`;
+  const connectHref = (apiSlot: 1 | 2) =>
+    `/api/etsy/connect?api=${apiSlot}&returnTo=${encodeURIComponent(connectReturnTo)}`;
   const localeHref = (nextLocale: Locale) =>
     hrefWithShop(activePath, selectedShopId, {
       ...preserveParams,
       lang: nextLocale,
     });
-  const sharedApiQuota =
-    selectedShop?.apiQuota ?? store.apiQuota ?? store.shops.find((shopData) => shopData.apiQuota)?.apiQuota ?? null;
-  const quotaShop = selectedShop ? { ...selectedShop, apiQuota: sharedApiQuota } : null;
+  const quotaShop = selectedShop;
+  const api2Configured = isEtsyApiConfigured(2);
+  const api1HasCapacity = etsyApiSlotHasCapacity(store.shops, 1);
+  const api2HasCapacity = etsyApiSlotHasCapacity(store.shops, 2);
+  const shopsByApiSlot = {
+    1: store.shops.filter((shop) => etsyApiSlotForConnection(shop.connection) === 1),
+    2: store.shops.filter((shop) => etsyApiSlotForConnection(shop.connection) === 2),
+  };
   const canSyncSelectedShop = Boolean(
     auth && selectedShopId && await hasShopAccess(auth, selectedShopId, "sync.run"),
   );
@@ -145,24 +157,34 @@ export async function AppShell({
                 <span className="platformStatus">{t.app.connected}</span>
               </div>
               <div className="shopListRows">
-                {store.shops.map((shopData) => (
-                  <Link
-                    className={
-                      shopData.connection.shopId === selectedShopId ? "shopListRow active" : "shopListRow"
-                    }
-                    href={hrefWithShop(activePath, shopData.connection.shopId, { lang: locale })}
-                    key={shopData.connection.shopId}
-                  >
-                    <span>
-                      <strong>{shopData.connection.shopName}</strong>
-                      <small>{dateFromString(shopData.lastSyncAt, locale)}</small>
-                    </span>
-                    {shopData.newOrderCount > 0 ? (
-                      <span className="countBadge">{compactNumber(shopData.newOrderCount, locale)}</span>
+                {([1, 2] as const).map((apiSlot) => (
+                  <div className={`apiShopGroup apiSlot${apiSlot}`} key={apiSlot}>
+                    <div className="apiShopGroupHeader">
+                      <strong>API {apiSlot}</strong>
+                      <small>{`${t.app.shopCount(compactNumber(shopsByApiSlot[apiSlot].length, locale))} / ${MAX_ETSY_SHOPS_PER_API}`}</small>
+                    </div>
+                    {shopsByApiSlot[apiSlot].map((shopData) => (
+                      <Link
+                        className={
+                          shopData.connection.shopId === selectedShopId ? "shopListRow active" : "shopListRow"
+                        }
+                        href={hrefWithShop(activePath, shopData.connection.shopId, { lang: locale })}
+                        key={shopData.connection.shopId}
+                      >
+                        <span>
+                          <strong>{shopData.connection.shopName}</strong>
+                          <small>{dateFromString(shopData.lastSyncAt, locale)}</small>
+                        </span>
+                        {shopData.newOrderCount > 0 ? (
+                          <span className="countBadge">{compactNumber(shopData.newOrderCount, locale)}</span>
+                        ) : null}
+                      </Link>
+                    ))}
+                    {shopsByApiSlot[apiSlot].length === 0 ? (
+                      <p className="emptyText">{locale === "zh" ? "暂无店铺" : "No shops"}</p>
                     ) : null}
-                  </Link>
+                  </div>
                 ))}
-                {store.shops.length === 0 ? <p className="emptyText">{t.settings.emptyShops}</p> : null}
               </div>
             </div>
 
@@ -207,10 +229,26 @@ export async function AppShell({
             </div>
 
             {canAddShop ? (
-              <Link className={selectedShopId ? "button secondary" : "button"} href={connectHref}>
-                {selectedShopId ? <Plus aria-hidden="true" size={16} /> : <Globe2 aria-hidden="true" size={16} />}
-                {selectedShopId ? t.actions.addShop : t.actions.connectEtsy}
-              </Link>
+              <>
+                {api1HasCapacity ? (
+                  <Link className={selectedShopId ? "button secondary" : "button"} href={connectHref(1)}>
+                    {selectedShopId ? <Plus aria-hidden="true" size={16} /> : <Globe2 aria-hidden="true" size={16} />}
+                    {selectedShopId ? `${t.actions.addShop} · API 1` : `${t.actions.connectEtsy} · API 1`}
+                  </Link>
+                ) : (
+                  <span aria-disabled="true" className="button secondary disabledButton">API 1 · {MAX_ETSY_SHOPS_PER_API}/5</span>
+                )}
+                {api2Configured ? (
+                  api2HasCapacity ? (
+                    <Link className="button secondary api2ConnectButton" href={connectHref(2)}>
+                      <Plus aria-hidden="true" size={16} />
+                      {`${t.actions.addShop} · API 2`}
+                    </Link>
+                  ) : (
+                    <span aria-disabled="true" className="button secondary disabledButton">API 2 · {MAX_ETSY_SHOPS_PER_API}/5</span>
+                  )
+                ) : null}
+              </>
             ) : null}
             {auth && selectedShopId && canSyncSelectedShop && activePath !== "/settings" ? (
               <form action={`/api/etsy/sync?shopId=${selectedShopId}&lang=${locale}`} method="post">

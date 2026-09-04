@@ -3,6 +3,7 @@ import path from "path";
 import { getPool } from "@/server/db";
 import { readDatabaseStore, replaceDatabaseStore } from "@/features/sync/db";
 import type { AppStore, EtsyApiQuota, EtsyShopData } from "@/shared/types/etsy";
+import { etsyApiSlotForConnection } from "@/features/etsy/api-config";
 
 const storePath = path.join(process.cwd(), "data", "app.json");
 
@@ -20,9 +21,11 @@ const emptyStore: AppStore = {
   shops: [],
 };
 
-function latestApiQuota(shops: EtsyShopData[], fallback?: EtsyApiQuota | null) {
+function latestApiQuota(shops: EtsyShopData[], apiSlot: 1 | 2, fallback?: EtsyApiQuota | null) {
   return (
-    [fallback, ...shops.map((shopData) => shopData.apiQuota)]
+    [fallback, ...shops
+      .filter((shopData) => etsyApiSlotForConnection(shopData.connection) === apiSlot)
+      .map((shopData) => shopData.apiQuota)]
       .filter((apiQuota): apiQuota is EtsyApiQuota => Boolean(apiQuota))
       .sort((left, right) => new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime())[0] ?? null
   );
@@ -48,6 +51,10 @@ export function normalizeStore(raw: Partial<AppStore>): AppStore {
   let shops = Array.isArray(merged.shops)
     ? merged.shops.map((shop) => ({
         ...shop,
+        connection: {
+          ...shop.connection,
+          apiSlot: etsyApiSlotForConnection(shop.connection),
+        },
         apiQuota: shop.apiQuota ?? null,
         newOrderCount: shop.newOrderCount ?? 0,
       }))
@@ -57,7 +64,10 @@ export function normalizeStore(raw: Partial<AppStore>): AppStore {
     shops = [
       ...shops,
       {
-        connection: merged.connection,
+        connection: {
+          ...merged.connection,
+          apiSlot: etsyApiSlotForConnection(merged.connection),
+        },
         shop: merged.shop,
         listings: merged.listings ?? [],
         receipts: merged.receipts ?? [],
@@ -71,13 +81,15 @@ export function normalizeStore(raw: Partial<AppStore>): AppStore {
     ];
   }
 
-  const sharedApiQuota = latestApiQuota(shops, merged.apiQuota);
-  if (sharedApiQuota) {
-    shops = shops.map((shopData) => ({
-      ...shopData,
-      apiQuota: sharedApiQuota,
-    }));
-  }
+  const fallbackApiSlot = merged.connection ? etsyApiSlotForConnection(merged.connection) : null;
+  const quotasByApiSlot = new Map<1 | 2, EtsyApiQuota | null>([
+    [1, latestApiQuota(shops, 1, fallbackApiSlot === 1 ? merged.apiQuota : null)],
+    [2, latestApiQuota(shops, 2, fallbackApiSlot === 2 ? merged.apiQuota : null)],
+  ]);
+  shops = shops.map((shopData) => ({
+    ...shopData,
+    apiQuota: quotasByApiSlot.get(etsyApiSlotForConnection(shopData.connection)) ?? null,
+  }));
 
   const requestedActiveShopId =
     merged.activeShopId ?? merged.connection?.shopId ?? shops[0]?.connection.shopId ?? null;
@@ -87,7 +99,6 @@ export function normalizeStore(raw: Partial<AppStore>): AppStore {
   return mirrorActiveShop(
     {
       ...merged,
-      apiQuota: sharedApiQuota,
       shops,
       activeShopId: activeShop?.connection.shopId ?? null,
     },

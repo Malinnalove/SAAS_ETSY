@@ -1,5 +1,5 @@
-import { getEnv } from "@/lib/env";
-import type { EtsyConnection } from "@/shared/types/etsy";
+import { etsyApiSlotForConnection, getEtsyApiConfig } from "@/features/etsy/api-config";
+import type { EtsyApiSlot, EtsyConnection } from "@/shared/types/etsy";
 import { parseEtsyResponse } from "@/features/etsy/client";
 
 const ETSY_TOKEN_URL = "https://openapi.etsy.com/v3/public/oauth/token";
@@ -11,8 +11,8 @@ type EtsyTokenResponse = {
   token_type: string;
 };
 
-export async function exchangeAuthorizationCode(code: string, codeVerifier: string) {
-  const env = getEnv();
+export async function exchangeAuthorizationCode(code: string, codeVerifier: string, apiSlot: EtsyApiSlot) {
+  const config = getEtsyApiConfig(apiSlot);
   const response = await fetch(ETSY_TOKEN_URL, {
     method: "POST",
     headers: {
@@ -20,8 +20,8 @@ export async function exchangeAuthorizationCode(code: string, codeVerifier: stri
     },
     body: new URLSearchParams({
       grant_type: "authorization_code",
-      client_id: env.ETSY_CLIENT_ID,
-      redirect_uri: env.ETSY_REDIRECT_URI,
+      client_id: config.clientId,
+      redirect_uri: config.redirectUri,
       code,
       code_verifier: codeVerifier,
     }),
@@ -31,7 +31,7 @@ export async function exchangeAuthorizationCode(code: string, codeVerifier: stri
 }
 
 export async function refreshAccessToken(connection: EtsyConnection) {
-  const env = getEnv();
+  const config = getEtsyApiConfig(etsyApiSlotForConnection(connection));
   const response = await fetch(ETSY_TOKEN_URL, {
     method: "POST",
     headers: {
@@ -39,7 +39,7 @@ export async function refreshAccessToken(connection: EtsyConnection) {
     },
     body: new URLSearchParams({
       grant_type: "refresh_token",
-      client_id: env.ETSY_CLIENT_ID,
+      client_id: config.clientId,
       refresh_token: connection.refreshToken,
     }),
   });

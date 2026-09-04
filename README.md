@@ -15,6 +15,9 @@ http://localhost:3000/api/etsy/callback
 
 ```text
 ETSY_CLIENT_ID=your_etsy_keystring
+ETSY_SHARED_SECRET=your_etsy_shared_secret
+ETSY_CLIENT_ID_2=your_second_etsy_keystring
+ETSY_SHARED_SECRET_2=your_second_etsy_shared_secret
 ETSY_REDIRECT_URI=http://localhost:3000/api/etsy/callback
 ETSY_SCOPES=address_r address_w billing_r cart_r cart_w email_r favorites_r favorites_w feedback_r listings_d listings_r listings_w profile_r profile_w recommend_r recommend_w shops_r shops_w transactions_r transactions_w
 APP_URL=http://localhost:3000
@@ -29,8 +32,11 @@ AUTH_RATE_LIMIT_SECRET=a_different_base64_encoded_random_value
 AUTH_MFA_ENCRYPTION_KEY=a_different_base64_encoded_random_value
 # Optional hardening:
 ETSY_WEBHOOK_SECRET=your_etsy_webhook_signing_secret
+ETSY_WEBHOOK_SECRET_2=your_second_etsy_webhook_signing_secret
 SYNC_CRON_SECRET=your_private_cron_secret
 ```
+
+Each Etsy app has one webhook signing secret shared by all of its event types. API 1 and API 2 use separate signing secrets and each API can hold up to five connected shops.
 
 If your file uses labels like `Keystring: ...` and `shared secret: ...`, the starter will also recognize those for local development.
 
@@ -133,7 +139,8 @@ Existing Etsy shops are assigned to the authenticated organization. Authenticate
 
 ## Endpoints
 
-- `POST /api/etsy/webhook` receives Etsy webhooks, records the raw event, and queues the right sync job.
+- `POST /api/etsy/webhook` receives API 1 Etsy webhooks, records the raw event, and queues the right sync job.
+- `POST /api/etsy/webhook2` receives API 2 Etsy webhooks and verifies them with `ETSY_WEBHOOK_SECRET_2`.
 - `POST /api/sync/cron` enqueues scheduled order catch-up work for every active shop and processes a small batch.
 - `GET /api/sync/jobs` returns queue/webhook status.
 - `POST /api/sync/jobs` processes queued jobs.
@@ -150,7 +157,7 @@ Recommended schedule:
 
 - Run `/api/sync/cron` every 15 minutes for all-shop order catch-up.
 - Run `/api/sync/jobs` every 1-5 minutes if your host supports a separate worker/cron.
-- Keep Etsy webhooks pointed at `/api/etsy/webhook` for order events such as paid, shipped, canceled, and delivered.
+- Point API 1 webhooks at `/api/etsy/webhook` and API 2 webhooks at `/api/etsy/webhook2` for all order event types.
 
 The scheduled cron path checks receipts with a 2-hour lookback from the last receipt cursor, but only queues receipt detail sync for new or changed receipts. Listing/catalog sync is throttled in code to run at most once per shop per day.
 
@@ -188,5 +195,5 @@ endpoint because Etsy requires complete products, offerings, and property values
 - Use `DATABASE_MIGRATION_URL` for migrations/recovery and a separate `DATABASE_URL` runtime role. After migrations, revoke `CREATE` on the application schema and do not grant `ALTER` or `DROP` ownership to the runtime role.
 - Rotating `AUTH_SESSION_SECRET` signs out every device. Rotate other authentication keys through the deployment secret manager; schedule a maintenance window before rotating the MFA encryption key.
 - Configure hosted cron jobs for `/api/sync/cron` and `/api/sync/jobs`.
-- Set `ETSY_WEBHOOK_SECRET` in production and reject unsigned webhook traffic.
+- Set both `ETSY_WEBHOOK_SECRET` and `ETSY_WEBHOOK_SECRET_2` in production so each Etsy app rejects unsigned webhook traffic independently.
 - Monitor Etsy API limits and keep orders higher priority than listing/analytics sync.

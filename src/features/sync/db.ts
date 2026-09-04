@@ -19,6 +19,7 @@ import type {
 } from "@/shared/types/etsy";
 import type { EtsyInventoryUpdateInput, EtsyListingInventory } from "@/features/etsy/client";
 import { sourceVersionForListing } from "@/features/products/listing-workbench-model";
+import { etsyApiSlotForConnection } from "@/features/etsy/api-config";
 
 const ADS_SYNC_NOTE =
   "Etsy Open API v3 does not expose a public Etsy Ads performance endpoint in the standard reference. Add a provider/import here when ad data is available.";
@@ -468,7 +469,12 @@ export async function updateShopMetadata(
   }
 }
 
-export async function updateEtsyApiQuota(shopId: number, apiQuota: EtsyApiQuota, pool = requirePool()) {
+export async function updateEtsyApiQuota(
+  shopId: number,
+  apiSlot: 1 | 2,
+  apiQuota: EtsyApiQuota,
+  pool = requirePool(),
+) {
   await ensureSyncSchema(pool);
 
   await pool.query(
@@ -476,10 +482,10 @@ export async function updateEtsyApiQuota(shopId: number, apiQuota: EtsyApiQuota,
       update etsy_shops
       set api_quota = $2::jsonb,
           updated_at = now()
-      where active = true
-         or shop_id = $1
+      where (active = true or shop_id = $1)
+        and coalesce(connection->>'apiSlot', '1') = $3
     `,
-    [shopId, JSON.stringify(apiQuota)],
+    [shopId, JSON.stringify(apiQuota), String(apiSlot)],
   );
 }
 
@@ -993,17 +999,23 @@ export async function readDatabaseStore(pool = requirePool(), organizationId?: n
     });
   }
 
-  const sharedApiQuota =
-    shops
-      .map((shopData) => shopData.apiQuota)
-      .filter((apiQuota): apiQuota is EtsyApiQuota => Boolean(apiQuota))
-      .sort((left, right) => new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime())[0] ?? null;
-  const normalizedShops = sharedApiQuota
-    ? shops.map((shopData) => ({
-        ...shopData,
-        apiQuota: sharedApiQuota,
-      }))
-    : shops;
+  const quotasByApiSlot = new Map<number, EtsyApiQuota>();
+  for (const shopData of shops) {
+    if (!shopData.apiQuota) continue;
+    const apiSlot = etsyApiSlotForConnection(shopData.connection);
+    const current = quotasByApiSlot.get(apiSlot);
+    if (!current || new Date(shopData.apiQuota.updatedAt).getTime() > new Date(current.updatedAt).getTime()) {
+      quotasByApiSlot.set(apiSlot, shopData.apiQuota);
+    }
+  }
+  const normalizedShops = shops.map((shopData) => ({
+    ...shopData,
+    connection: {
+      ...shopData.connection,
+      apiSlot: etsyApiSlotForConnection(shopData.connection),
+    },
+    apiQuota: quotasByApiSlot.get(etsyApiSlotForConnection(shopData.connection)) ?? shopData.apiQuota,
+  }));
   const activeShop = normalizedShops[0] ?? null;
 
   return {
@@ -1466,6 +1478,25 @@ export async function getShopConnection(shopId: number, pool = requirePool()) {
   );
 
   return result.rows[0]?.connection ?? null;
+}
+
+export async function getEtsyApiSlotShopCount(
+  apiSlot: 1 | 2,
+  excludingShopId?: number,
+  pool = requirePool(),
+) {
+  await ensureSyncSchema(pool);
+  const result = await pool.query<{ count: string }>(
+    `
+      select count(*)::text as count
+      from etsy_shops
+      where active = true
+        and coalesce(connection->>'apiSlot', '1') = $1
+        and ($2::bigint is null or shop_id <> $2)
+    `,
+    [String(apiSlot), excludingShopId ?? null],
+  );
+  return Number(result.rows[0]?.count ?? 0);
 }
 
 export async function listActiveShopIds(pool = requirePool()) {

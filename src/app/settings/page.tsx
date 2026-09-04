@@ -11,6 +11,12 @@ import { getDictionary } from "@/shared/i18n";
 import { getSyncStatus } from "@/features/sync/db";
 import { getWorkspace, hrefWithShop, type WorkspacePageProps } from "@/features/workspace/workspace";
 import { requirePermission } from "@/features/auth/session";
+import {
+  etsyApiSlotForConnection,
+  etsyApiSlotHasCapacity,
+  isEtsyApiConfigured,
+  MAX_ETSY_SHOPS_PER_API,
+} from "@/features/etsy/api-config";
 
 function statusCount(status: Record<string, number> | undefined, key: string) {
   return status?.[key] ?? 0;
@@ -37,6 +43,13 @@ export default async function SettingsPage({ searchParams }: WorkspacePageProps)
         ? t.settings.notices.connected
         : settingsDetail;
   const settingsReturnTo = hrefWithShop("/settings", selectedShopId, { lang: locale });
+  const api2Configured = isEtsyApiConfigured(2);
+  const api1HasCapacity = etsyApiSlotHasCapacity(store.shops, 1);
+  const api2HasCapacity = etsyApiSlotHasCapacity(store.shops, 2);
+  const shopsByApiSlot = {
+    1: store.shops.filter((shop) => etsyApiSlotForConnection(shop.connection) === 1),
+    2: store.shops.filter((shop) => etsyApiSlotForConnection(shop.connection) === 2),
+  };
 
   return (
     <AppShell
@@ -126,21 +139,39 @@ export default async function SettingsPage({ searchParams }: WorkspacePageProps)
               <span className="tinyLabel">{t.settings.panels.platforms}</span>
               <h2>{t.settings.marketplaceConnections}</h2>
             </div>
-            <Link className="button" href={`/api/etsy/connect?returnTo=${encodeURIComponent(settingsReturnTo)}`}>
-              {t.actions.connectEtsy}
-            </Link>
+            <div className="rowActions">
+              {api1HasCapacity ? (
+                <Link className="button" href={`/api/etsy/connect?api=1&returnTo=${encodeURIComponent(settingsReturnTo)}`}>
+                  {t.actions.connectEtsy} · API 1
+                </Link>
+              ) : (
+                <span aria-disabled="true" className="button disabledButton">API 1 · {MAX_ETSY_SHOPS_PER_API}/5</span>
+              )}
+              {api2Configured ? (
+                api2HasCapacity ? (
+                  <Link className="button secondary" href={`/api/etsy/connect?api=2&returnTo=${encodeURIComponent(settingsReturnTo)}`}>
+                    {t.actions.connectEtsy} · API 2
+                  </Link>
+                ) : (
+                  <span aria-disabled="true" className="button secondary disabledButton">API 2 · {MAX_ETSY_SHOPS_PER_API}/5</span>
+                )
+              ) : null}
+            </div>
           </div>
           <div className="marketplaceGroups">
-            <section className="marketplaceGroup">
-              <div className="marketplaceHeader">
-                <div>
-                  <strong>Etsy</strong>
-                  <small>{t.app.shopCount(compactNumber(store.shops.length, locale))}</small>
+            {([1, 2] as const).map((apiSlot) => (
+              <section className={`marketplaceGroup etsyApiGroup apiSlot${apiSlot}`} key={apiSlot}>
+                <div className="marketplaceHeader">
+                  <div>
+                    <strong>Etsy API {apiSlot}</strong>
+                    <small>{`${t.app.shopCount(compactNumber(shopsByApiSlot[apiSlot].length, locale))} / ${MAX_ETSY_SHOPS_PER_API}`}</small>
+                  </div>
+                  <StatusBadge tone={apiSlot === 1 || api2Configured ? "success" : "neutral"}>
+                    {apiSlot === 1 || api2Configured ? t.status.active : t.status.missing}
+                  </StatusBadge>
                 </div>
-                <StatusBadge tone="success">{t.status.active}</StatusBadge>
-              </div>
-              <div className="settingsRows">
-                {store.shops.map((shopData) => (
+                <div className="settingsRows">
+                  {shopsByApiSlot[apiSlot].map((shopData) => (
                   <div className="settingsRow" key={shopData.connection.shopId}>
                     <div>
                       <strong>{shopData.connection.shopName}</strong>
@@ -163,7 +194,7 @@ export default async function SettingsPage({ searchParams }: WorkspacePageProps)
                       )}
                       <Link
                         className="button quiet"
-                        href={`/api/etsy/connect?returnTo=${encodeURIComponent(
+                        href={`/api/etsy/connect?api=${apiSlot}&returnTo=${encodeURIComponent(
                           hrefWithShop("/settings", shopData.connection.shopId, { lang: locale }),
                         )}`}
                       >
@@ -187,10 +218,11 @@ export default async function SettingsPage({ searchParams }: WorkspacePageProps)
                       />
                     </div>
                   </div>
-                ))}
-                {store.shops.length === 0 ? <EmptyState>{t.settings.emptyShops}</EmptyState> : null}
-              </div>
-            </section>
+                  ))}
+                  {shopsByApiSlot[apiSlot].length === 0 ? <EmptyState>{t.settings.emptyShops}</EmptyState> : null}
+                </div>
+              </section>
+            ))}
 
             <section className="marketplaceGroup">
               <div className="marketplaceHeader">
@@ -254,13 +286,22 @@ export default async function SettingsPage({ searchParams }: WorkspacePageProps)
           <div className="settingsRows">
             <div className="settingsRow">
               <div>
-                <strong>{t.settings.rows.webhook}</strong>
+                <strong>{t.settings.rows.webhook} · API 1</strong>
                 <small>{`${baseUrl}/api/etsy/webhook`}</small>
               </div>
               <StatusBadge tone="info">
                 {t.settings.rows.events(
                   compactNumber(Object.values(syncStatus?.webhooks ?? {}).reduce((a, b) => a + b, 0), locale),
                 )}
+              </StatusBadge>
+            </div>
+            <div className="settingsRow">
+              <div>
+                <strong>{t.settings.rows.webhook} · API 2</strong>
+                <small>{`${baseUrl}/api/etsy/webhook2`}</small>
+              </div>
+              <StatusBadge tone={env.ETSY_WEBHOOK_SECRET_2 ? "success" : "neutral"}>
+                {env.ETSY_WEBHOOK_SECRET_2 ? t.status.enabled : t.status.notSet}
               </StatusBadge>
             </div>
             <div className="settingsRow">
@@ -300,24 +341,22 @@ export default async function SettingsPage({ searchParams }: WorkspacePageProps)
                 {databaseConfigured ? t.status.configured : t.status.missing}
               </StatusBadge>
             </div>
-            <div className="settingsRow">
-              <div>
-                <strong>{t.settings.rows.etsyApp}</strong>
-                <small>{t.settings.rows.oauthRedirect}: {env.ETSY_REDIRECT_URI}</small>
-              </div>
-              <StatusBadge tone={env.ETSY_CLIENT_ID ? "success" : "danger"}>
-                {env.ETSY_CLIENT_ID ? t.status.configured : t.status.missing}
-              </StatusBadge>
-            </div>
-            <div className="settingsRow">
-              <div>
-                <strong>{t.settings.rows.webhookSigning}</strong>
-                <small>{t.settings.rows.webhookSigningDescription}</small>
-              </div>
-              <StatusBadge tone={env.ETSY_WEBHOOK_SECRET ? "success" : "neutral"}>
-                {env.ETSY_WEBHOOK_SECRET ? t.status.enabled : t.status.notSet}
-              </StatusBadge>
-            </div>
+            {([1, 2] as const).map((apiSlot) => {
+              const configured = apiSlot === 1 ? Boolean(env.ETSY_CLIENT_ID) : Boolean(env.ETSY_CLIENT_ID_2);
+              const webhookSigning = apiSlot === 1 ? env.ETSY_WEBHOOK_SECRET : env.ETSY_WEBHOOK_SECRET_2;
+              return (
+                <div className={`settingsRow etsyApiRuntimeRow apiSlot${apiSlot}`} key={apiSlot}>
+                  <div>
+                    <strong>{t.settings.rows.etsyApp} · API {apiSlot}</strong>
+                    <small>{t.settings.rows.oauthRedirect}: {env.ETSY_REDIRECT_URI}</small>
+                    <small>{t.settings.rows.webhookSigning}: {webhookSigning ? t.status.enabled : t.status.notSet}</small>
+                  </div>
+                  <StatusBadge tone={configured ? "success" : "danger"}>
+                    {configured ? t.status.configured : t.status.missing}
+                  </StatusBadge>
+                </div>
+              );
+            })}
           </div>
         </div>
 

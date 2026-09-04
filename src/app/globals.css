@@ -462,6 +462,24 @@ button.quiet.dangerOutline:hover {
   padding-left: 0;
 }
 
+.apiShopGroup {
+  border: 1px solid var(--line);
+  border-left: 3px solid #8f8270;
+  border-radius: 8px;
+  display: grid;
+  gap: 2px;
+  margin: 2px 0 4px -9px;
+  overflow: hidden;
+  padding: 5px;
+}
+
+.apiShopGroup.apiSlot2 { border-left-color: #367a78; }
+.apiShopGroupHeader { align-items: center; display: flex; justify-content: space-between; padding: 4px 7px; }
+.apiShopGroupHeader strong { font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; }
+.apiShopGroupHeader small { color: var(--muted); font-size: 11px; }
+.apiShopGroup .shopListRow { margin-left: 0; margin-right: 0; padding-left: 8px; padding-right: 8px; }
+.apiShopGroup .emptyText { margin: 0; padding: 5px 7px 7px; }
+
 .shopListRow {
   align-items: center;
   background: transparent;
@@ -1756,6 +1774,11 @@ button.quiet.dangerOutline:hover {
   border-radius: var(--radius);
   padding: 10px;
 }
+
+.marketplaceGroup.etsyApiGroup,
+.settingsRow.etsyApiRuntimeRow { border-left: 4px solid #8f8270; }
+.marketplaceGroup.etsyApiGroup.apiSlot2,
+.settingsRow.etsyApiRuntimeRow.apiSlot2 { border-left-color: #367a78; }
 
 .settingsRow {
   align-items: center;

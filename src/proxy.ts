@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from "next/server";
 const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 const CROSS_SITE_EXCEPTIONS = new Set([
   "/api/etsy/webhook",
+  "/api/etsy/webhook2",
   "/api/sync/cron",
   "/api/sync/jobs",
 ]);

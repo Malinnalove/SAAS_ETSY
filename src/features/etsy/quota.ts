@@ -1,7 +1,8 @@
 import { updateEtsyApiQuota } from "@/features/sync/db";
 import { updateStore } from "@/lib/store";
 import { getPool } from "@/server/db";
-import type { EtsyApiQuota } from "@/shared/types/etsy";
+import { etsyApiSlotForConnection } from "@/features/etsy/api-config";
+import type { EtsyApiQuota, EtsyApiSlot } from "@/shared/types/etsy";
 
 function numberHeader(headers: Headers, name: string) {
   const raw = headers.get(name);
@@ -26,22 +27,21 @@ export function etsyApiQuotaFromHeaders(headers: Headers): EtsyApiQuota | null {
   };
 }
 
-export async function persistEtsyApiQuota(shopId: number, apiQuota: EtsyApiQuota) {
+export async function persistEtsyApiQuota(shopId: number, apiSlot: EtsyApiSlot, apiQuota: EtsyApiQuota) {
   if (!Number.isFinite(shopId) || shopId <= 0) return;
 
   const pool = getPool();
 
   if (pool) {
-    await updateEtsyApiQuota(shopId, apiQuota, pool);
+    await updateEtsyApiQuota(shopId, apiSlot, apiQuota, pool);
     return;
   }
 
   await updateStore((store) => ({
     ...store,
-    apiQuota,
     shops: store.shops.map((shopData) => ({
       ...shopData,
-      apiQuota,
+      apiQuota: etsyApiSlotForConnection(shopData.connection) === apiSlot ? apiQuota : shopData.apiQuota,
     })),
   }));
 }

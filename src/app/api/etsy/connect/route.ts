@@ -1,7 +1,7 @@
 import { cookies } from "next/headers";
 import { NextRequest, NextResponse } from "next/server";
 import { requireUserApi, safeReturnPath as safeAuthReturnPath } from "@/features/auth/session";
-import { getEnv } from "@/lib/env";
+import { getEtsyApiConfig, parseEtsyApiSlot } from "@/features/etsy/api-config";
 import { createCodeChallenge, createCodeVerifier, createState } from "@/lib/oauth";
 
 function safeReturnPath(value: string | null) {
@@ -14,7 +14,12 @@ export async function GET(request: NextRequest) {
     return guard.response;
   }
 
-  const env = getEnv();
+  const requestedApiSlot = request.nextUrl.searchParams.get("api");
+  const apiSlot = requestedApiSlot ? parseEtsyApiSlot(requestedApiSlot) : 1;
+  if (!apiSlot) {
+    return NextResponse.json({ error: "Unknown Etsy API slot." }, { status: 400 });
+  }
+  const config = getEtsyApiConfig(apiSlot);
   const state = createState();
   const codeVerifier = createCodeVerifier();
   const codeChallenge = createCodeChallenge(codeVerifier);
@@ -35,6 +40,13 @@ export async function GET(request: NextRequest) {
     sameSite: "lax",
     secure: process.env.NODE_ENV === "production",
   });
+  cookieStore.set("etsy_api_slot", String(apiSlot), {
+    httpOnly: true,
+    maxAge: 10 * 60,
+    path: "/",
+    sameSite: "lax",
+    secure: process.env.NODE_ENV === "production",
+  });
   if (returnTo) {
     cookieStore.set("etsy_oauth_return_to", returnTo, {
       httpOnly: true,
@@ -47,9 +59,9 @@ export async function GET(request: NextRequest) {
 
   const params = new URLSearchParams({
     response_type: "code",
-    redirect_uri: env.ETSY_REDIRECT_URI,
-    scope: env.ETSY_SCOPES,
-    client_id: env.ETSY_CLIENT_ID,
+    redirect_uri: config.redirectUri,
+    scope: config.scopes,
+    client_id: config.clientId,
     state,
     code_challenge: codeChallenge,
     code_challenge_method: "S256",

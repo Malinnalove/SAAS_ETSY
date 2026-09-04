@@ -1,4 +1,4 @@
-import { getEnv } from "@/lib/env";
+import { etsyApiSlotForConnection, getEtsyApiConfig } from "@/features/etsy/api-config";
 import { etsyApiQuotaFromHeaders, persistEtsyApiQuota } from "@/features/etsy/quota";
 import type {
   EtsyConnection,
@@ -256,10 +256,10 @@ export class EtsyClient {
   constructor(private readonly connection: EtsyConnection) {}
 
   private getApiKeyHeader() {
-    const env = getEnv();
-    return env.ETSY_SHARED_SECRET
-      ? `${env.ETSY_CLIENT_ID}:${env.ETSY_SHARED_SECRET}`
-      : env.ETSY_CLIENT_ID;
+    const config = getEtsyApiConfig(etsyApiSlotForConnection(this.connection));
+    return config.sharedSecret
+      ? `${config.clientId}:${config.sharedSecret}`
+      : config.clientId;
   }
 
   private async request<T>(path: string, options: EtsyRequestOptions = {}) {
@@ -285,7 +285,11 @@ export class EtsyClient {
       const apiQuota = etsyApiQuotaFromHeaders(response.headers);
 
       if (apiQuota) {
-        await persistEtsyApiQuota(this.connection.shopId, apiQuota).catch((error) => {
+        await persistEtsyApiQuota(
+          this.connection.shopId,
+          etsyApiSlotForConnection(this.connection),
+          apiQuota,
+        ).catch((error) => {
           console.error(`Failed to persist Etsy API quota for shop ${this.connection.shopId}:`, error);
         });
       }

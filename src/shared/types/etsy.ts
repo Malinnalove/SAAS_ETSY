@@ -1,4 +1,8 @@
+export type EtsyApiSlot = 1 | 2;
+
 export type EtsyConnection = {
+  /** Missing on legacy records; legacy connections always belong to API 1. */
+  apiSlot?: EtsyApiSlot;
   userId: string;
   shopId: number;
   shopName: string;

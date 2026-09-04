@@ -184,7 +184,7 @@ export function EtsyApiQuotaWidget({
             dailyLimit: (value: string) => `日额度 ${value}`,
             dailyLimitUnknown: "日额度 --",
             remaining: "今日剩余",
-            title: "Etsy API",
+            title: `Etsy API ${selectedShop?.connection.apiSlot ?? 1}`,
             updated: "更新",
             waiting: "等待 Etsy 响应头",
           }
@@ -193,11 +193,11 @@ export function EtsyApiQuotaWidget({
             dailyLimit: (value: string) => `Daily limit ${value}`,
             dailyLimitUnknown: "Daily limit --",
             remaining: "Remaining today",
-            title: "Etsy API",
+            title: `Etsy API ${selectedShop?.connection.apiSlot ?? 1}`,
             updated: "Updated",
             waiting: "Waiting for Etsy header",
           },
-    [locale],
+    [locale, selectedShop?.connection.apiSlot],
   );
 
   const moveTo = useCallback((nextPosition: WidgetPosition) => {

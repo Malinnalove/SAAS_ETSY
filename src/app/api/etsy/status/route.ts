@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { listAccessibleShopIds, requireUserApi } from "@/features/auth/session";
 import { filterStoreByShopIds, readOrganizationStore } from "@/lib/store";
 import { getSyncStatus } from "@/features/sync/db";
+import { etsyApiSlotForConnection } from "@/features/etsy/api-config";
 
 export async function GET(request: Request) {
   const guard = await requireUserApi(request, "products.read");
@@ -18,6 +19,7 @@ export async function GET(request: Request) {
     shop: store.connection
       ? {
           shopId: store.connection.shopId,
+          apiSlot: etsyApiSlotForConnection(store.connection),
           shopName: store.connection.shopName,
           userId: store.connection.userId,
           scopes: store.connection.scopes,
@@ -33,6 +35,7 @@ export async function GET(request: Request) {
     apiQuota: store.apiQuota,
     shops: store.shops.map((shopData) => ({
       shopId: shopData.connection.shopId,
+      apiSlot: etsyApiSlotForConnection(shopData.connection),
       shopName: shopData.connection.shopName,
       userId: shopData.connection.userId,
       active: shopData.connection.shopId === store.activeShopId,
