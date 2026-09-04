@@ -1,6 +1,9 @@
 import { createHmac } from "crypto";
 import { describe, expect, it } from "vitest";
-import { webhookSignatureMatches } from "@/features/etsy/webhook-handler";
+import {
+  webhookSignatureMatches,
+  webhookSigningSecretAllowsRequest,
+} from "@/features/etsy/webhook-handler";
 
 const rawBody = '{"event_type":"order.paid","shop_id":123}';
 const webhookId = "msg_test";
@@ -13,6 +16,12 @@ const signature = createHmac("sha256", secretBytes)
   .digest("base64");
 
 describe("Etsy webhook signatures", () => {
+  it("fails closed when a production signing secret is missing", () => {
+    expect(webhookSigningSecretAllowsRequest(undefined, "production")).toBe(false);
+    expect(webhookSigningSecretAllowsRequest(undefined, "development")).toBe(true);
+    expect(webhookSigningSecretAllowsRequest("whsec_test", "production")).toBe(true);
+  });
+
   it("accepts Etsy's v1 comma signature format with the exact raw body", () => {
     expect(webhookSignatureMatches({
       now,

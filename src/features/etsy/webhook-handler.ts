@@ -62,16 +62,29 @@ export function webhookSignatureMatches({
   return signatureCandidates(signatureHeader).some((candidate) => safeEqual(candidate, expectedSignature));
 }
 
+export function webhookSigningSecretAllowsRequest(secret: string | undefined, nodeEnv = process.env.NODE_ENV) {
+  return Boolean(secret) || nodeEnv !== "production";
+}
+
 function verifyWebhookSignature(request: Request, rawBody: string, apiSlot: EtsyApiSlot) {
   const secret = getEtsyApiConfig(apiSlot).webhookSecret;
-  if (!secret) return { ok: true, verified: false };
+  if (!secret) {
+    return {
+      configured: false,
+      ok: webhookSigningSecretAllowsRequest(secret),
+      verified: false,
+    };
+  }
 
   const webhookId = request.headers.get("webhook-id");
   const timestamp = request.headers.get("webhook-timestamp");
   const signatureHeader = request.headers.get("webhook-signature");
-  if (!webhookId || !timestamp || !signatureHeader) return { ok: false, verified: false };
+  if (!webhookId || !timestamp || !signatureHeader) {
+    return { configured: true, ok: false, verified: false };
+  }
 
   return {
+    configured: true,
     ok: webhookSignatureMatches({ rawBody, secret, signatureHeader, timestamp, webhookId }),
     verified: true,
   };
@@ -102,7 +115,14 @@ export async function handleEtsyWebhook(request: Request, apiSlot: EtsyApiSlot) 
   const rawBody = await request.text();
   const signature = verifyWebhookSignature(request, rawBody, apiSlot);
   if (!signature.ok) {
-    return NextResponse.json({ error: `Invalid Etsy API ${apiSlot} webhook signature.` }, { status: 401 });
+    return NextResponse.json(
+      {
+        error: signature.configured
+          ? `Invalid Etsy API ${apiSlot} webhook signature.`
+          : `Etsy API ${apiSlot} webhook signing secret is not configured.`,
+      },
+      { status: signature.configured ? 401 : 503 },
+    );
   }
 
   let payload: Record<string, unknown>;
